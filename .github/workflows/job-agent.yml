@@ -2,10 +2,9 @@ name: Job Search Agent
 
 on:
   schedule:
-    # 7am EST = 12:00 UTC (Nov–Mar, UTC-5)
-    # 7am EDT = 11:00 UTC (Mar–Nov, UTC-4)
-    # Running at 12:00 UTC covers both; adjust to 11:00 after DST change if needed
-    - cron: '0 12 * * *'
+    # 7am EDT = 11:00 UTC (Mar–Nov, Toronto UTC-4) ← current setting
+    # In winter when Toronto observes EST (UTC-5), change to: 0 12 * * *
+    - cron: '0 11 * * *'
   workflow_dispatch:  # allows manual trigger from GitHub Actions tab
 
 jobs:
