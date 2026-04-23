@@ -245,7 +245,7 @@ def _run_gap_analysis(
 ) -> str:
     prompt = prompts.GAP_ANALYSIS_PROMPT.format(resume_text=resume_text, job_text=job_text)
     response = client.messages.create(
-        model="claude-opus-4-7",
+        model="claude-sonnet-4-6",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -264,7 +264,7 @@ def _tailor_resume(
         gap_analysis_output=gap,
     )
     response = client.messages.create(
-        model="claude-opus-4-7",
+        model="claude-sonnet-4-6",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -283,7 +283,7 @@ def _write_cover_letter(
         gap_analysis_output=gap,
     )
     response = client.messages.create(
-        model="claude-opus-4-7",
+        model="claude-sonnet-4-6",
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
