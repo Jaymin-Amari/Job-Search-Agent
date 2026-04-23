@@ -1,0 +1,35 @@
+name: Job Search Agent
+
+on:
+  schedule:
+    # 7am EST = 12:00 UTC (Nov–Mar, UTC-5)
+    # 7am EDT = 11:00 UTC (Mar–Nov, UTC-4)
+    # Running at 12:00 UTC covers both; adjust to 11:00 after DST change if needed
+    - cron: '0 12 * * *'
+  workflow_dispatch:  # allows manual trigger from GitHub Actions tab
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run job search agent
+        run: python agent.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
+          INDEED_MCP_URL: ${{ secrets.INDEED_MCP_URL }}
+          INDEED_MCP_TOKEN: ${{ secrets.INDEED_MCP_TOKEN }}
