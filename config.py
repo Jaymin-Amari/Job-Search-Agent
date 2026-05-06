@@ -1,5 +1,8 @@
 import os
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # ── Drive IDs ──────────────────────────────────────────────────────────────────
 MASTER_RESUME_ID = "1Ak_C7oJUcNUESUYPX-Ux0IwlLynkfOTeg3cxl1GATN8"
 DRIVE_OUTPUT_FOLDER_ID = "13rj--5qMNRlUbxd4q6ZohyzxG3saHsIX"
