@@ -165,7 +165,8 @@ def _scrape_career_page(company: str, url: str) -> tuple[list[dict] | None, str 
             return None, "Blanka — career page has human verification, check manually"
         return result, None
 
-    return _scrape_generic(company, url)
+    result = _scrape_generic(company, url)
+    return result, None
 
 
 def _scrape_greenhouse(company: str, url: str) -> tuple[list[dict] | None, str | None]:

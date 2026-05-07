@@ -2,6 +2,8 @@ import io
 import json
 import os
 
+import httplib2
+import google_auth_httplib2
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -16,6 +18,14 @@ _drive_service = None
 _docs_service = None
 
 
+def _authorized_http():
+    # Disable SSL verification to handle self-signed certs in sandbox environments
+    creds = _credentials()
+    return google_auth_httplib2.AuthorizedHttp(
+        creds, http=httplib2.Http(disable_ssl_certificate_validation=True)
+    )
+
+
 def _credentials():
     info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
     return service_account.Credentials.from_service_account_info(info, scopes=_SCOPES)
@@ -24,21 +34,36 @@ def _credentials():
 def get_drive_service():
     global _drive_service
     if _drive_service is None:
-        _drive_service = build("drive", "v3", credentials=_credentials())
+        _drive_service = build("drive", "v3", http=_authorized_http())
     return _drive_service
 
 
 def get_docs_service():
     global _docs_service
     if _docs_service is None:
-        _docs_service = build("docs", "v1", credentials=_credentials())
+        _docs_service = build("docs", "v1", http=_authorized_http())
     return _docs_service
 
 
 def download_docx_text(file_id: str) -> str:
-    """Download a .docx file from Drive and return its plain text content."""
+    """Download or export a file from Drive and return its plain text content.
+
+    Handles both native Google Docs (exported as docx) and binary .docx files.
+    """
     drive = get_drive_service()
-    request = drive.files().get_media(fileId=file_id)
+    meta = drive.files().get(fileId=file_id, fields="mimeType").execute()
+    mime = meta.get("mimeType", "")
+
+    if mime == "application/vnd.google-apps.document":
+        # Google Doc — export as docx
+        request = drive.files().export_media(
+            fileId=file_id,
+            mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+    else:
+        # Binary .docx or other file — download directly
+        request = drive.files().get_media(fileId=file_id)
+
     buf = io.BytesIO()
     downloader = MediaIoBaseDownload(buf, request)
     done = False
