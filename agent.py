@@ -231,8 +231,8 @@ def _score_job(
         end = text.rfind("}") + 1
         if start >= 0 and end > start:
             result = json.loads(text[start:end])
-            # Inject the actual URL into the teal_entry if missing
-            if "teal_entry" in result and not result["teal_entry"].get("url"):
+            teal = result.get("teal_entry")
+            if isinstance(teal, dict) and not teal.get("url"):
                 result["teal_entry"]["url"] = job_url
             return result
     except Exception as e:

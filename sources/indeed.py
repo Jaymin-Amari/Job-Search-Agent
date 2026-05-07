@@ -1,8 +1,10 @@
 """
-Searches Indeed via the Indeed MCP server using Claude API tool_use.
+Searches Indeed via the Indeed MCP using Claude API tool_use.
 
-The Indeed MCP is pre-connected to Jaymin's Anthropic account — no URL or
-token env vars required. The server is referenced by its label only.
+Note: the 'type: mcp' tool format only works within Claude.ai's connected
+MCP environment. When called from a standalone Python script via the API,
+the server_label approach is not supported — the agent logs a warning and
+skips Indeed gracefully.
 """
 
 import json
@@ -10,6 +12,13 @@ import json
 import anthropic
 
 from config import SEARCH_LOCATIONS, TARGET_ROLES
+
+_MCP_UNSUPPORTED_MSG = (
+    "[indeed] Indeed MCP is not accessible via the standalone API "
+    "(server_label requires a Claude.ai session). Skipping Indeed source.\n"
+    "  → To enable Indeed: provide INDEED_MCP_URL in .env pointing to a "
+    "publicly reachable Indeed MCP server endpoint."
+)
 
 
 def search_indeed(client: anthropic.Anthropic) -> list[dict]:
@@ -19,7 +28,10 @@ def search_indeed(client: anthropic.Anthropic) -> list[dict]:
 
     for role in TARGET_ROLES:
         for location in SEARCH_LOCATIONS:
-            results = _search_role(client, role, location)
+            results, unsupported = _search_role(client, role, location)
+            if unsupported:
+                print(_MCP_UNSUPPORTED_MSG)
+                return []
             for job in results:
                 url = job.get("url", "")
                 if url and url not in seen_urls:
@@ -30,7 +42,10 @@ def search_indeed(client: anthropic.Anthropic) -> list[dict]:
     return jobs
 
 
-def _search_role(client: anthropic.Anthropic, role: str, location: str) -> list[dict]:
+def _search_role(
+    client: anthropic.Anthropic, role: str, location: str
+) -> tuple[list[dict], bool]:
+    """Returns (jobs, mcp_unsupported). mcp_unsupported=True means caller should abort."""
     try:
         response = client.beta.messages.create(
             model="claude-sonnet-4-6",
@@ -60,9 +75,13 @@ def _search_role(client: anthropic.Anthropic, role: str, location: str) -> list[
                     raw = json.loads(text[start:end])
                     for job in raw:
                         job["source"] = "indeed"
-                    return raw
+                    return raw, False
 
+    except anthropic.BadRequestError as e:
+        if "Input tag 'mcp'" in str(e):
+            return [], True  # signal caller to abort all Indeed searches
+        print(f"[indeed] Error searching '{role}' in '{location}': {e}")
     except Exception as e:
         print(f"[indeed] Error searching '{role}' in '{location}': {e}")
 
-    return []
+    return [], False
