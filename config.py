@@ -39,8 +39,9 @@ NETWORK_FLAGS = {
     "wealthsimple": "Wealthsimple — Lisa Dunford connection — flag",
 }
 
-# ── Watchlist: confirmed URLs ──────────────────────────────────────────────────
+# ── Watchlist: all career page URLs (hardcoded) ───────────────────────────────
 WATCHLIST_CONFIRMED = {
+    # ── SOP confirmed URLs ────────────────────────────────────────────────────
     "Blanka": "https://app.dover.com/dover/careers/c7ce686d-ec82-4176-9df3-583daa4d65eb",
     "PheedLoop": "https://pheedloop.com/more/careers#Job-Openings",
     "DealMaker": "https://www.dealmaker.tech/careers#open-positions",
@@ -50,42 +51,44 @@ WATCHLIST_CONFIRMED = {
     "Yspace Job Board": "https://www.yorku.ca/yspace/startups/job-board/",
     "The Knowledge Society": "https://www.tks.world/team-and-careers",
     "VentureLAB": "https://www.venturelab.ca/job-board",
+    # ── Innovation hubs + ecosystem orgs ─────────────────────────────────────
+    "MaRS Discovery District": "https://www.marsdd.com/careers/",
+    "Communitech": "https://www.communitech.ca/about/careers.html",
+    "Ontario Centre of Innovation": "https://www.oc-innovation.ca/about/careers/",
+    "DMZ": "https://www.torontomu.ca/careers/search-available-career-opportunities/",
+    "Creative Destruction Lab": "https://creativedestructionlab.com/jobs/",
+    "OneEleven": "https://oneeleven.com/open-jobs/",
+    "NGen Canada": "https://www.ngen.ca/careers",
+    "Mitacs": "https://www.mitacs.ca/careers/",
+    "NRC IRAP": "https://recruitment-recrutement.nrc-cnrc.gc.ca/go/All-Jobs/2320717/",
+    "Futurpreneur Canada": "https://futurpreneur.ca/en/careers/",
+    "Startup Canada": "https://www.startupcan.ca/careers-startup-canada-jobs/",
+    "Invest Toronto": "https://www.investtoronto.ca/careers/",
+    "Toronto Global": "https://torontoglobal.ca/careers/",
+    "Toronto Region Board of Trade": "https://bot.com/About/Careers",
+    "City of Toronto": "https://jobs.toronto.ca/jobsatcity/",
+    "Platform Calgary": "https://www.platformcalgary.com/about/careers",
+    "District 3 Concordia": "https://www.district3.co/jobs",
+    # ── Post-secondary institutions ───────────────────────────────────────────
+    "University of Toronto": "https://jobs.utoronto.ca/go/Staff-Opportunities/2607517/",
+    "Toronto Metropolitan University": "https://www.torontomu.ca/careers/search-available-career-opportunities/",
+    "OCAD University": "https://www.ocadu.ca/employment/job-opportunities",
+    "York University": "https://hr.info.yorku.ca/viewopportunities/",
+    "George Brown College": "https://gbcareers.georgebrown.ca/",
+    "Humber College": "https://humber.ca/careers/",
+    "Seneca College": "https://www.senecapolytechnic.ca/human-resources/careers.html",
+    "Centennial College": "https://www.centennialcollege.ca/about-centennial/careers",
+    # ── Toronto tech companies ────────────────────────────────────────────────
+    "Owner.com": "https://www.owner.com/careers",
+    "Relay": "https://relayfi.com/careers/",
+    "Fellow": "https://fellow.ai/careers",
+    "Float Financial": "https://floatcard.com/join-us",
+    "Humi": "https://www.humi.ca/careers",
+    # Properly wound down as an independent company in 2023 — no live careers page
 }
 
-# ── Watchlist: auto-find companies ────────────────────────────────────────────
-WATCHLIST_AUTO_FIND = [
-    "MaRS Discovery District",
-    "Communitech",
-    "Ontario Centre of Innovation",
-    "DMZ",
-    "University of Toronto",
-    "Toronto Metropolitan University",
-    "OCAD University",
-    "York University",
-    "George Brown College",
-    "Humber College",
-    "Seneca College",
-    "Centennial College",
-    "Toronto Region Board of Trade",
-    "NGen Canada",
-    "Mitacs",
-    "NRC IRAP",
-    "Futurpreneur Canada",
-    "Startup Canada",
-    "Creative Destruction Lab",
-    "OneEleven",
-    "City of Toronto",
-    "Owner.com",
-    "Relay",
-    "Fellow",
-    "Float Financial",
-    "Humi",
-    "Properly",
-    "Invest Toronto",
-    "Toronto Global",
-    "Platform Calgary",
-    "District 3 Concordia",
-]
+# No auto-find needed — all companies are now hardcoded above
+WATCHLIST_AUTO_FIND: list[str] = []
 
 # ── Queer-role detection: flag for manual handling, skip auto-cover-letter ─────
 QUEER_ROLE_KEYWORDS = [
