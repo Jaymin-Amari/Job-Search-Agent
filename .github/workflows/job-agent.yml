@@ -27,7 +27,7 @@ jobs:
         run: python agent.py
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          JOB_AGENT_JSON_KEY: ${{ secrets.JOB_AGENT_JSON_KEY }}
           GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
           GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
           INDEED_MCP_URL: ${{ secrets.INDEED_MCP_URL }}

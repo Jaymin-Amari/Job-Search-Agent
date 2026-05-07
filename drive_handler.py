@@ -27,7 +27,7 @@ def _authorized_http():
 
 
 def _credentials():
-    info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
+    info = json.loads(os.environ["JOB_AGENT_JSON_KEY"])
     return service_account.Credentials.from_service_account_info(info, scopes=_SCOPES)
 
 
