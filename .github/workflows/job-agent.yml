@@ -28,7 +28,6 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           JOB_AGENT_JSON_KEY: ${{ secrets.JOB_AGENT_JSON_KEY }}
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
           GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
           GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
-          INDEED_MCP_URL: ${{ secrets.INDEED_MCP_URL }}
-          INDEED_MCP_TOKEN: ${{ secrets.INDEED_MCP_TOKEN }}

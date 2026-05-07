@@ -2,6 +2,9 @@
 Scrapes company watchlist career pages for new job postings.
 Handles confirmed URLs, auto-find URL discovery (pattern + Google Search fallback),
 and ATS-specific parsing (Greenhouse JSON API, Lever JSON API, generic HTML).
+
+Set SCRAPER_API_KEY env var to route generic HTML scrapes through ScraperAPI
+(scraperapi.com) and bypass GitHub Actions IP blocks. Free tier = 1,000 req/mo.
 """
 
 import os
@@ -22,6 +25,8 @@ _HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
 }
+
+_SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY", "")
 
 _CAREER_PATH_CANDIDATES = [
     "/careers",
@@ -225,12 +230,31 @@ def _scrape_lever(company: str, url: str) -> tuple[list[dict] | None, str | None
         return _scrape_generic(company, url)
 
 
-def _scrape_generic(company: str, url: str) -> list[dict] | None:
+def _fetch_html(url: str) -> str | None:
+    """Fetch page HTML via ScraperAPI (if configured) or direct request."""
+    if _SCRAPER_API_KEY:
+        try:
+            resp = requests.get(
+                "http://api.scraperapi.com",
+                params={"api_key": _SCRAPER_API_KEY, "url": url},
+                timeout=30,
+            )
+            return resp.text if resp.status_code == 200 else None
+        except Exception:
+            return None
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=15)
-        if resp.status_code != 200:
+        return resp.text if resp.status_code == 200 else None
+    except Exception:
+        return None
+
+
+def _scrape_generic(company: str, url: str) -> list[dict] | None:
+    try:
+        html = _fetch_html(url)
+        if not html:
             return None
-        soup = BeautifulSoup(resp.text, "lxml")
+        soup = BeautifulSoup(html, "lxml")
         jobs = []
         seen_urls: set[str] = set()
         for a in soup.find_all("a", href=True):
