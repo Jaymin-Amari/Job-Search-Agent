@@ -9,6 +9,7 @@ Set SCRAPER_API_KEY env var to route generic HTML scrapes through ScraperAPI
 
 import os
 import re
+import time
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -57,14 +58,21 @@ _ROLE_KEYWORDS = [r.lower() for r in TARGET_ROLES] + [
 ]
 
 
+_WATCHLIST_TIMEOUT_SECS = 180  # 3 minutes total budget for all watchlist scraping
+
+
 def get_watchlist_jobs() -> tuple[list[dict], list[str]]:
     """Scrape all watchlist pages. Returns (jobs, notes_for_briefing)."""
     jobs = []
     notes = []
+    deadline = time.monotonic() + _WATCHLIST_TIMEOUT_SECS
 
     # Build full source map: confirmed + auto-discovered
     sources: dict[str, str] = dict(WATCHLIST_CONFIRMED)
     for company in WATCHLIST_AUTO_FIND:
+        if time.monotonic() >= deadline:
+            notes.append(f"{company} — skipped (watchlist time limit reached)")
+            continue
         url = _find_career_url(company)
         if url:
             sources[company] = url
@@ -72,6 +80,9 @@ def get_watchlist_jobs() -> tuple[list[dict], list[str]]:
             notes.append(f"{company} — no careers page found")
 
     for company, url in sources.items():
+        if time.monotonic() >= deadline:
+            notes.append(f"{company} — skipped (watchlist time limit reached)")
+            continue
         found, note = _scrape_career_page(company, url)
         if note:
             notes.append(note)
@@ -181,7 +192,7 @@ def _scrape_greenhouse(company: str, url: str) -> tuple[list[dict] | None, str |
             return _scrape_generic(company, url)
         slug = match.group(1)
         api_url = f"https://boards.greenhouse.io/{slug}/jobs.json"
-        resp = requests.get(api_url, headers=_HEADERS, timeout=12)
+        resp = requests.get(api_url, headers=_HEADERS, timeout=10)
         if resp.status_code != 200:
             return _scrape_generic(company, url)
         jobs = []
@@ -209,7 +220,7 @@ def _scrape_lever(company: str, url: str) -> tuple[list[dict] | None, str | None
             return _scrape_generic(company, url)
         slug = match.group(1)
         api_url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
-        resp = requests.get(api_url, headers=_HEADERS, timeout=12)
+        resp = requests.get(api_url, headers=_HEADERS, timeout=10)
         if resp.status_code != 200:
             return _scrape_generic(company, url)
         jobs = []
@@ -237,13 +248,13 @@ def _fetch_html(url: str) -> str | None:
             resp = requests.get(
                 "http://api.scraperapi.com",
                 params={"api_key": _SCRAPER_API_KEY, "url": url},
-                timeout=30,
+                timeout=10,
             )
             return resp.text if resp.status_code == 200 else None
         except Exception:
             return None
     try:
-        resp = requests.get(url, headers=_HEADERS, timeout=15)
+        resp = requests.get(url, headers=_HEADERS, timeout=10)
         return resp.text if resp.status_code == 200 else None
     except Exception:
         return None
