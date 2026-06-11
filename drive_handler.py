@@ -45,6 +45,13 @@ def get_docs_service():
     return _docs_service
 
 
+def reset_services() -> None:
+    """Clear cached service clients so the next call rebuilds them with a fresh connection."""
+    global _drive_service, _docs_service
+    _drive_service = None
+    _docs_service = None
+
+
 def download_docx_text(file_id: str) -> str:
     """Download or export a file from Drive and return its plain text content.
 

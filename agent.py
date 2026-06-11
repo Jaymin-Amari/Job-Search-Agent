@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone
 
 import anthropic
@@ -180,18 +181,7 @@ def main() -> None:
         print(briefing)
         print("=" * 60)
     else:
-        print("Updating Daily Briefing Google Doc...")
-        doc_id = drive_handler.get_or_create_briefing_doc(
-            config.DRIVE_OUTPUT_FOLDER_ID, config.DAILY_BRIEFING_DOC_NAME
-        )
-        drive_handler.prepend_to_doc(doc_id, briefing)
-
-        print("Writing seen_jobs.log back to Drive...")
-        drive_handler.write_text_file_in_folder(
-            config.DRIVE_OUTPUT_FOLDER_ID,
-            config.SEEN_JOBS_FILE_NAME,
-            "\n".join(seen_urls),
-        )
+        _drive_write_with_retry(briefing, seen_urls)
 
     print(
         f"\nDone. {len(strong_real)} strong fit(s), "
@@ -472,6 +462,38 @@ def _check_network_flag(company: str) -> str | None:
 def _safe_name(s: str) -> str:
     """Strip characters illegal in filenames and truncate."""
     return re.sub(r'[\\/*?:"<>|]', "", s).strip()[:40]
+
+
+def _drive_write_with_retry(briefing: str, seen_urls: set[str]) -> None:
+    """Write briefing doc and seen_jobs.log to Drive.
+
+    Rebuilds service clients before each attempt to avoid stale connections
+    after a long scoring run (~9+ minutes of API calls drops the underlying
+    httplib2 socket). Retries up to 3 times with a 5-second pause.
+    """
+    for attempt in range(1, 4):
+        try:
+            drive_handler.reset_services()
+
+            print("Updating Daily Briefing Google Doc...")
+            doc_id = drive_handler.get_or_create_briefing_doc(
+                config.DRIVE_OUTPUT_FOLDER_ID, config.DAILY_BRIEFING_DOC_NAME
+            )
+            drive_handler.prepend_to_doc(doc_id, briefing)
+
+            print("Writing seen_jobs.log back to Drive...")
+            drive_handler.write_text_file_in_folder(
+                config.DRIVE_OUTPUT_FOLDER_ID,
+                config.SEEN_JOBS_FILE_NAME,
+                "\n".join(seen_urls),
+            )
+            return
+        except Exception as e:
+            if attempt == 3:
+                print(f"Drive write failed after 3 attempts: {e}")
+                raise
+            print(f"Drive write failed (attempt {attempt}/3): {e} — retrying in 5s")
+            time.sleep(5)
 
 
 if __name__ == "__main__":
