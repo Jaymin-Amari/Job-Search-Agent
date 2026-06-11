@@ -112,22 +112,6 @@ def write_text_file_in_folder(folder_id: str, name: str, content: str) -> None:
         drive.files().create(body=metadata, media_body=media).execute()
 
 
-def read_json_staging(folder_id: str, name: str) -> list:
-    """Read the LinkedIn staging JSON file. Returns [] if missing or empty."""
-    content = read_text_file_in_folder(folder_id, name)
-    if not content.strip():
-        return []
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        return []
-
-
-def clear_json_staging(folder_id: str, name: str) -> None:
-    """Reset the LinkedIn staging file to an empty array."""
-    write_text_file_in_folder(folder_id, name, "[]")
-
-
 def upload_docx(folder_id: str, filename: str, docx_bytes: bytes) -> str:
     """Upload a .docx file to Drive and return its file ID."""
     drive = get_drive_service()

@@ -1,8 +1,8 @@
 """
 Reads LinkedIn job URLs from the Drive staging file that Make.com writes to.
 Make.com watches Gmail for LinkedIn job alert emails, extracts URLs, and appends
-them to linkedin_staging.json in the Drive output folder throughout the day.
-This module reads and clears that file each morning during the agent run.
+them one per line to linkedin_staging.txt in the Drive output folder throughout
+the day. This module reads and clears that file each morning during the agent run.
 """
 
 import requests
@@ -14,29 +14,27 @@ from config import DRIVE_OUTPUT_FOLDER_ID, STAGING_FILE_NAME
 
 def get_linkedin_jobs(dry_run: bool = False) -> list[dict]:
     """Read staged LinkedIn job URLs from Drive, fetch their descriptions, clear the file."""
-    entries = drive_handler.read_json_staging(DRIVE_OUTPUT_FOLDER_ID, STAGING_FILE_NAME)
-    if not entries:
+    raw = drive_handler.read_text_file_in_folder(DRIVE_OUTPUT_FOLDER_ID, STAGING_FILE_NAME)
+    urls = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not urls:
         print("[linkedin] No staged jobs found.")
         return []
 
-    print(f"[linkedin] {len(entries)} staged URL(s) found.")
+    print(f"[linkedin] {len(urls)} staged URL(s) found.")
     jobs = []
-    for entry in entries:
-        url = entry.get("url", "").strip()
-        if not url:
-            continue
+    for url in urls:
         description = _fetch_job_description(url)
         jobs.append({
             "url": url,
-            "title": entry.get("title", ""),
-            "company": entry.get("company", ""),
-            "location": entry.get("location", ""),
+            "title": "",
+            "company": "",
+            "location": "",
             "description": description,
             "source": "linkedin",
         })
 
     if not dry_run:
-        drive_handler.clear_json_staging(DRIVE_OUTPUT_FOLDER_ID, STAGING_FILE_NAME)
+        drive_handler.write_text_file_in_folder(DRIVE_OUTPUT_FOLDER_ID, STAGING_FILE_NAME, "")
         print("[linkedin] Staging file cleared.")
 
     return jobs
