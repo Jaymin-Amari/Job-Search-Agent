@@ -1,28 +1,38 @@
 """
-Reads LinkedIn job URLs from the Drive staging file that Make.com writes to.
-Make.com watches Gmail for LinkedIn job alert emails, extracts URLs, and appends
-them one per line to linkedin_staging.txt in the Drive output folder throughout
-the day. This module reads and clears that file each morning during the agent run.
+Reads LinkedIn job URLs from dated staging files that Make.com writes to Drive.
+Make.com creates one file per Gmail alert, named linkedin_<date>.txt, with one
+URL per line. This module reads all linkedin_*.txt files in the output folder,
+collects every URL, then deletes each file after processing.
 """
 
 import requests
 from bs4 import BeautifulSoup
 
 import drive_handler
-from config import DRIVE_OUTPUT_FOLDER_ID, STAGING_FILE_NAME
+from config import DRIVE_OUTPUT_FOLDER_ID, STAGING_FILE_PREFIX
 
 
 def get_linkedin_jobs(dry_run: bool = False) -> list[dict]:
-    """Read staged LinkedIn job URLs from Drive, fetch their descriptions, clear the file."""
-    raw = drive_handler.read_text_file_in_folder(DRIVE_OUTPUT_FOLDER_ID, STAGING_FILE_NAME)
-    urls = [line.strip() for line in raw.splitlines() if line.strip()]
-    if not urls:
-        print("[linkedin] No staged jobs found.")
+    """Read all linkedin_*.txt staging files from Drive, return jobs, delete files."""
+    staging_files = drive_handler.list_staging_files(DRIVE_OUTPUT_FOLDER_ID, STAGING_FILE_PREFIX)
+    if not staging_files:
+        print("[linkedin] No staging files found.")
         return []
 
-    print(f"[linkedin] {len(urls)} staged URL(s) found.")
+    print(f"[linkedin] {len(staging_files)} staging file(s) found.")
+    all_urls: list[str] = []
+    for f in staging_files:
+        raw = drive_handler.read_file_by_id(f["id"])
+        urls = [line.strip() for line in raw.splitlines() if line.strip()]
+        print(f"[linkedin]   {f['name']}: {len(urls)} URL(s)")
+        all_urls.extend(urls)
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique_urls = [u for u in all_urls if not (u in seen or seen.add(u))]
+
     jobs = []
-    for url in urls:
+    for url in unique_urls:
         description = _fetch_job_description(url)
         jobs.append({
             "url": url,
@@ -34,8 +44,9 @@ def get_linkedin_jobs(dry_run: bool = False) -> list[dict]:
         })
 
     if not dry_run:
-        drive_handler.write_text_file_in_folder(DRIVE_OUTPUT_FOLDER_ID, STAGING_FILE_NAME, "")
-        print("[linkedin] Staging file cleared.")
+        for f in staging_files:
+            drive_handler.delete_file(f["id"])
+        print(f"[linkedin] Deleted {len(staging_files)} staging file(s).")
 
     return jobs
 

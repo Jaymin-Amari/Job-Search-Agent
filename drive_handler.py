@@ -112,6 +112,37 @@ def write_text_file_in_folder(folder_id: str, name: str, content: str) -> None:
         drive.files().create(body=metadata, media_body=media).execute()
 
 
+def list_staging_files(folder_id: str, prefix: str) -> list[dict]:
+    """Return [{id, name}, ...] for all non-trashed files in folder whose name
+    starts with *prefix* and ends with '.txt', sorted by name."""
+    drive = get_drive_service()
+    q = f"'{folder_id}' in parents and name contains '{prefix}' and trashed = false"
+    result = drive.files().list(q=q, fields="files(id, name)").execute()
+    files = [
+        f for f in result.get("files", [])
+        if f["name"].startswith(prefix) and f["name"].endswith(".txt")
+    ]
+    return sorted(files, key=lambda f: f["name"])
+
+
+def read_file_by_id(file_id: str) -> str:
+    """Download a plain-text file by ID and return its content as a string."""
+    drive = get_drive_service()
+    request = drive.files().get_media(fileId=file_id)
+    buf = io.BytesIO()
+    downloader = MediaIoBaseDownload(buf, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    return buf.getvalue().decode("utf-8")
+
+
+def delete_file(file_id: str) -> None:
+    """Permanently delete a Drive file by ID."""
+    drive = get_drive_service()
+    drive.files().delete(fileId=file_id).execute()
+
+
 def upload_docx(folder_id: str, filename: str, docx_bytes: bytes) -> str:
     """Upload a .docx file to Drive and return its file ID."""
     drive = get_drive_service()

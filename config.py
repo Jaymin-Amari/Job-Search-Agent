@@ -6,7 +6,7 @@ load_dotenv()
 # ── Drive IDs ──────────────────────────────────────────────────────────────────
 MASTER_RESUME_ID = "1Ak_C7oJUcNUESUYPX-Ux0IwlLynkfOTeg3cxl1GATN8"
 DRIVE_OUTPUT_FOLDER_ID = "1tzVvQdZcgb_q1fcq_mhwjiCEMWTEunAv"
-STAGING_FILE_NAME = "linkedin_staging.txt"
+STAGING_FILE_PREFIX = "linkedin_"
 SEEN_JOBS_FILE_NAME = "seen_jobs.log"
 DAILY_BRIEFING_DOC_NAME = "Daily Briefing"
 
