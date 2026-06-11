@@ -75,6 +75,13 @@ def main() -> None:
     if pre_filtered:
         print(f"Pre-filtered (excluded titles): {pre_filtered}")
 
+    # ── 4b. Cap at MAX_JOBS_PER_RUN (newest first) ────────────────────────────
+    jobs_to_score.sort(key=_date_sort_key, reverse=True)
+    cap_skipped = max(0, len(jobs_to_score) - config.MAX_JOBS_PER_RUN)
+    if cap_skipped:
+        print(f"Capping at {config.MAX_JOBS_PER_RUN} jobs ({cap_skipped} older postings skipped)")
+        jobs_to_score = jobs_to_score[: config.MAX_JOBS_PER_RUN]
+
     # ── 5. Score and process each job ─────────────────────────────────────────
     strong_fits: list[dict] = []
     worth_a_look: list[dict] = []
@@ -99,8 +106,8 @@ def main() -> None:
             f"{description}"
         )
 
-        # Flag queer-focused roles for manual handling
-        if _is_queer_focused(job_text):
+        # Flag queer-focused roles for manual handling (title + company only)
+        if _is_queer_focused(title, company):
             print(f"    ⚑ Queer-focused role — flagged for manual handling, no auto-apply")
             strong_fits.append({**job, "_queer_flag": True})
             continue
@@ -157,6 +164,7 @@ def main() -> None:
             f"{len(config.WATCHLIST_CONFIRMED) + len(config.WATCHLIST_AUTO_FIND)} watchlist pages"
         ),
         "total_reviewed": len(jobs_to_score),
+        "cap_skipped": cap_skipped,
         "gated_out": len(gated_out),
         "scored": scored_count,
         "strong_fits": len(strong_real),
@@ -327,9 +335,9 @@ def _format_briefing(
         f"📅 {today} — DAILY JOB BRIEFING",
         f"Scanned: {stats['sources_scanned']}",
         (
-            f"New postings reviewed: {stats['total_reviewed']} | "
-            f"Gated out: {stats['gated_out']} | "
-            f"Scored: {stats['scored']}"
+            f"New postings reviewed: {stats['total_reviewed']}"
+            + (f" (+{stats['cap_skipped']} cap-skipped)" if stats.get("cap_skipped") else "")
+            + f" | Gated out: {stats['gated_out']} | Scored: {stats['scored']}"
         ),
         (
             f"Briefing includes: {stats['strong_fits']} strong fits | "
@@ -439,9 +447,18 @@ def _fetch_description(url: str) -> str:
         return ""
 
 
-def _is_queer_focused(text: str) -> bool:
-    t = text.lower()
-    return any(kw in t for kw in config.QUEER_ROLE_KEYWORDS)
+def _is_queer_focused(title: str, company: str) -> bool:
+    """Flag only when the title or company name itself contains a queer-org keyword."""
+    haystack = (title + " " + company).lower()
+    return any(kw in haystack for kw in config.QUEER_ROLE_KEYWORDS)
+
+
+def _date_sort_key(job: dict) -> str:
+    """Return an ISO date string for sorting newest-first; '' sorts last."""
+    d = job.get("date_posted")
+    if not d:
+        return ""
+    return str(d)[:10]  # handles date objects and 'YYYY-MM-DD' strings
 
 
 def _check_network_flag(company: str) -> str | None:

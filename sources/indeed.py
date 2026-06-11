@@ -47,6 +47,7 @@ def search_indeed(client: anthropic.Anthropic) -> list[dict]:
                     "location": str(row.get("location") or ""),
                     "url": url,
                     "description": str(row.get("description") or "")[:4000],
+                    "date_posted": row.get("date_posted"),
                     "source": "indeed",
                 })
         except Exception as e:

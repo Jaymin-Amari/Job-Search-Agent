@@ -90,7 +90,14 @@ WATCHLIST_CONFIRMED = {
 # No auto-find needed — all companies are now hardcoded above
 WATCHLIST_AUTO_FIND: list[str] = []
 
+# ── Scoring cap ───────────────────────────────────────────────────────────────
+# Process at most this many jobs per run (newest first). Prevents timeouts when
+# the feed is unusually large after a holiday or weekend gap.
+MAX_JOBS_PER_RUN = 50
+
 # ── Queer-role detection: flag for manual handling, skip auto-cover-letter ─────
+# Only checked against job title + company name — not description — to avoid
+# false positives from diversity boilerplate in generic postings.
 QUEER_ROLE_KEYWORDS = [
     "lgbtq",
     "2slgbtq",
@@ -98,9 +105,7 @@ QUEER_ROLE_KEYWORDS = [
     "trans ",
     "transgender",
     "pride",
-    "rainbow",
     "two-spirit",
-    "non-binary inclusion",
 ]
 
 # ── Dry-run mode: set DRY_RUN=true to skip all Drive writes ───────────────────
