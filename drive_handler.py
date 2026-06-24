@@ -150,18 +150,6 @@ def delete_file(file_id: str) -> None:
     drive.files().delete(fileId=file_id).execute()
 
 
-def upload_docx(folder_id: str, filename: str, docx_bytes: bytes) -> str:
-    """Upload a .docx file to Drive and return its file ID."""
-    drive = get_drive_service()
-    buf = io.BytesIO(docx_bytes)
-    media = MediaIoBaseUpload(
-        buf,
-        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    )
-    metadata = {"name": filename, "parents": [folder_id]}
-    file = drive.files().create(body=metadata, media_body=media, fields="id").execute()
-    return file["id"]
-
 
 def get_or_create_briefing_doc(folder_id: str, name: str) -> str:
     """Return the Google Doc ID for the Daily Briefing, creating it if it doesn't exist."""
@@ -194,6 +182,117 @@ def prepend_to_doc(doc_id: str, text: str) -> None:
             ]
         },
     ).execute()
+
+
+def read_doc_text(doc_id: str) -> str:
+    """Return the plain text content of a Google Doc."""
+    docs = get_docs_service()
+    doc = docs.documents().get(documentId=doc_id).execute()
+    parts = []
+    for element in doc.get("body", {}).get("content", []):
+        if "paragraph" in element:
+            for pe in element["paragraph"].get("elements", []):
+                if "textRun" in pe:
+                    parts.append(pe["textRun"]["content"])
+    return "".join(parts)
+
+
+def overwrite_google_doc(doc_id: str, text: str) -> None:
+    """Replace all content in a Google Doc with *text*."""
+    docs = get_docs_service()
+    doc = docs.documents().get(documentId=doc_id).execute()
+    end_index = doc["body"]["content"][-1]["endIndex"]
+
+    requests = []
+    # Delete existing body content, preserving the mandatory final paragraph marker.
+    if end_index > 2:
+        requests.append({
+            "deleteContentRange": {
+                "range": {"startIndex": 1, "endIndex": end_index - 1}
+            }
+        })
+    if text.strip():
+        requests.append({
+            "insertText": {
+                "location": {"index": 1},
+                "text": text,
+            }
+        })
+    if requests:
+        docs.documents().batchUpdate(documentId=doc_id, body={"requests": requests}).execute()
+
+
+def _build_doc_requests(text: str) -> list[dict]:
+    """Convert markdown-hinted text to Docs API batchUpdate requests.
+
+    Handles # Heading, ## Heading, and - / • / * bullets.
+    Returns an insertText request followed by paragraph-style requests.
+    """
+    paragraphs = []
+    for line in text.split("\n"):
+        s = line.strip()
+        if s.startswith("## "):
+            paragraphs.append((s[3:] + "\n", "HEADING_2"))
+        elif s.startswith("# "):
+            paragraphs.append((s[2:] + "\n", "HEADING_1"))
+        elif s.startswith(("- ", "• ", "* ")):
+            paragraphs.append((s[2:] + "\n", "BULLET"))
+        else:
+            paragraphs.append(((s + "\n") if s else "\n", "NORMAL_TEXT"))
+
+    full_text = "".join(p[0] for p in paragraphs)
+    if not full_text.strip():
+        return []
+
+    requests = [{"insertText": {"location": {"index": 1}, "text": full_text}}]
+
+    idx = 1
+    for content, style in paragraphs:
+        end = idx + len(content)
+        if style == "HEADING_1":
+            requests.append({
+                "updateParagraphStyle": {
+                    "range": {"startIndex": idx, "endIndex": end},
+                    "paragraphStyle": {"namedStyleType": "HEADING_1"},
+                    "fields": "namedStyleType",
+                }
+            })
+        elif style == "HEADING_2":
+            requests.append({
+                "updateParagraphStyle": {
+                    "range": {"startIndex": idx, "endIndex": end},
+                    "paragraphStyle": {"namedStyleType": "HEADING_2"},
+                    "fields": "namedStyleType",
+                }
+            })
+        elif style == "BULLET":
+            requests.append({
+                "createParagraphBullets": {
+                    "range": {"startIndex": idx, "endIndex": end},
+                    "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE",
+                }
+            })
+        idx = end
+
+    return requests
+
+
+def create_google_doc(folder_id: str, name: str, text: str) -> str:
+    """Create a new Google Doc in *folder_id*, populate it with formatted *text*, return doc ID."""
+    drive = get_drive_service()
+    metadata = {
+        "name": name,
+        "parents": [folder_id],
+        "mimeType": "application/vnd.google-apps.document",
+    }
+    file = drive.files().create(body=metadata, fields="id").execute()
+    doc_id = file["id"]
+    if text.strip():
+        docs = get_docs_service()
+        requests = _build_doc_requests(text)
+        if requests:
+            docs.documents().batchUpdate(documentId=doc_id, body={"requests": requests}).execute()
+    return doc_id
 
 
 if __name__ == "__main__":

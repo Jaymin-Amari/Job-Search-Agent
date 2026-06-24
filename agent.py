@@ -7,7 +7,6 @@ Run:
   DRY_RUN=true python agent.py  # prints briefing to stdout, no Drive writes
 """
 
-import io
 import json
 import os
 import re
@@ -16,7 +15,6 @@ import time
 from datetime import datetime, timezone
 
 import anthropic
-from docx import Document
 
 import config
 import drive_handler
@@ -37,10 +35,11 @@ def main() -> None:
     print("Reading master resume from Drive...")
     resume_text = drive_handler.download_docx_text(config.MASTER_RESUME_ID)
 
-    print("Reading seen_jobs.log from Drive...")
-    seen_raw = drive_handler.read_text_file_in_folder(
-        config.DRIVE_OUTPUT_FOLDER_ID, config.SEEN_JOBS_FILE_NAME
+    print("Reading seen_jobs doc from Drive...")
+    seen_doc_id = drive_handler.get_or_create_briefing_doc(
+        config.DRIVE_OUTPUT_FOLDER_ID, config.SEEN_JOBS_DOC_NAME
     )
+    seen_raw = drive_handler.read_doc_text(seen_doc_id)
     seen_urls: set[str] = {line.strip() for line in seen_raw.splitlines() if line.strip()}
 
     # ── 2. Fetch all jobs ──────────────────────────────────────────────────────
@@ -131,22 +130,22 @@ def main() -> None:
         if score >= 7:
             print(f"    Score {score} — gap analysis + writing...")
             gap = _run_gap_analysis(client, resume_text, job_text)
-            resume_bytes = _tailor_resume(client, resume_text, job_text, gap)
-            cover_bytes = _write_cover_letter(client, resume_text, job_text, gap)
+            resume_doc = _tailor_resume(client, resume_text, job_text, gap)
+            cover_doc = _write_cover_letter(client, resume_text, job_text, gap)
 
             safe_co = _safe_name(company)
             safe_title = _safe_name(title)
-            resume_fname = f"{date_prefix} — {safe_co} — {safe_title} — Resume.docx"
-            cover_fname = f"{date_prefix} — {safe_co} — {safe_title} — Cover Letter.docx"
+            resume_name = f"{date_prefix} — {safe_co} — {safe_title} — Resume"
+            cover_name = f"{date_prefix} — {safe_co} — {safe_title} — Cover Letter"
 
             if not dry_run:
-                drive_handler.upload_docx(config.DRIVE_OUTPUT_FOLDER_ID, resume_fname, resume_bytes)
-                drive_handler.upload_docx(config.DRIVE_OUTPUT_FOLDER_ID, cover_fname, cover_bytes)
-                print(f"    Uploaded: {resume_fname}")
-                print(f"    Uploaded: {cover_fname}")
+                drive_handler.create_google_doc(config.DRIVE_OUTPUT_FOLDER_ID, resume_name, resume_doc)
+                drive_handler.create_google_doc(config.DRIVE_OUTPUT_FOLDER_ID, cover_name, cover_doc)
+                print(f"    Created: {resume_name}")
+                print(f"    Created: {cover_name}")
             else:
-                print(f"    [DRY RUN] Would upload: {resume_fname}")
-                print(f"    [DRY RUN] Would upload: {cover_fname}")
+                print(f"    [DRY RUN] Would create: {resume_name}")
+                print(f"    [DRY RUN] Would create: {cover_name}")
 
             strong_fits.append({**job, **score_result, "network_flag": network_flag})
 
@@ -181,7 +180,7 @@ def main() -> None:
         print(briefing)
         print("=" * 60)
     else:
-        _drive_write_with_retry(briefing, seen_urls)
+        _drive_write_with_retry(briefing, seen_urls, seen_doc_id)
 
     print(
         f"\nDone. {len(strong_real)} strong fit(s), "
@@ -255,7 +254,7 @@ def _tailor_resume(
     resume_text: str,
     job_text: str,
     gap: str,
-) -> bytes:
+) -> str:
     prompt = prompts.RESUME_TAILORING_PROMPT.format(
         resume_text=resume_text,
         job_text=job_text,
@@ -266,7 +265,7 @@ def _tailor_resume(
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
-    return _text_to_docx(response.content[0].text)
+    return response.content[0].text
 
 
 def _write_cover_letter(
@@ -274,7 +273,7 @@ def _write_cover_letter(
     resume_text: str,
     job_text: str,
     gap: str,
-) -> bytes:
+) -> str:
     prompt = prompts.COVER_LETTER_PROMPT.format(
         resume_text=resume_text,
         job_text=job_text,
@@ -285,29 +284,7 @@ def _write_cover_letter(
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
-    return _text_to_docx(response.content[0].text)
-
-
-# ── Document generation ────────────────────────────────────────────────────────
-
-def _text_to_docx(text: str) -> bytes:
-    """Convert plain text (with basic Markdown hints) to a Word doc."""
-    doc = Document()
-    for line in text.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("## "):
-            doc.add_heading(stripped[3:], level=2)
-        elif stripped.startswith("# "):
-            doc.add_heading(stripped[2:], level=1)
-        elif stripped.startswith(("- ", "• ", "* ")):
-            doc.add_paragraph(stripped[2:], style="List Bullet")
-        elif stripped:
-            doc.add_paragraph(stripped)
-        else:
-            doc.add_paragraph("")
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
+    return response.content[0].text
 
 
 # ── Briefing formatter ─────────────────────────────────────────────────────────
@@ -464,8 +441,8 @@ def _safe_name(s: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', "", s).strip()[:40]
 
 
-def _drive_write_with_retry(briefing: str, seen_urls: set[str]) -> None:
-    """Write briefing doc and seen_jobs.log to Drive.
+def _drive_write_with_retry(briefing: str, seen_urls: set[str], seen_doc_id: str) -> None:
+    """Write briefing doc and seen_jobs doc to Drive.
 
     Rebuilds service clients before each attempt to avoid stale connections
     after a long scoring run (~9+ minutes of API calls drops the underlying
@@ -476,17 +453,13 @@ def _drive_write_with_retry(briefing: str, seen_urls: set[str]) -> None:
             drive_handler.reset_services()
 
             print("Updating Daily Briefing Google Doc...")
-            doc_id = drive_handler.get_or_create_briefing_doc(
+            briefing_doc_id = drive_handler.get_or_create_briefing_doc(
                 config.DRIVE_OUTPUT_FOLDER_ID, config.DAILY_BRIEFING_DOC_NAME
             )
-            drive_handler.prepend_to_doc(doc_id, briefing)
+            drive_handler.prepend_to_doc(briefing_doc_id, briefing)
 
-            print("Writing seen_jobs.log back to Drive...")
-            drive_handler.write_text_file_in_folder(
-                config.DRIVE_OUTPUT_FOLDER_ID,
-                config.SEEN_JOBS_FILE_NAME,
-                "\n".join(seen_urls),
-            )
+            print("Writing seen_jobs Google Doc...")
+            drive_handler.overwrite_google_doc(seen_doc_id, "\n".join(sorted(seen_urls)))
             return
         except Exception as e:
             if attempt == 3:
