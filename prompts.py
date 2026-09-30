@@ -29,20 +29,38 @@ SCORING_PROMPT = """\
 You are evaluating a job posting for a candidate with the following background:
 {resume_text}
 
-Score this job posting on a scale of 1–10 using a weighted composite:
-- Resume/JD fit (30%): How well does the candidate's experience and skills map to the role? Score relative to a strong generalist ops/PM background — directional alignment counts, not keyword-perfect matching.
-- Interview likelihood (30%): Given the candidate's profile, how likely are they to get a screening call? Consider that generalist ops/PM candidates get interviews at a wide range of companies, not just ones with exact title matches.
-- Offer likelihood (40%): If they get the interview, how competitive is their full profile for an offer?
+GATE CHECK — evaluate this first.
+Pass the gate if ANY ONE of these is true:
+- Work is directionally relevant: enablement, program ops, RevOps, ecosystem support, community ops, learning/platform ops, systems operations, business analysis, process design, operational or systems auditing
+- Company is in a target sector: tech, SaaS, startup ecosystem, innovation, education, health tech, fintech — even if the role is adjacent to the candidate's target
+- Organization is government, public sector, publicly funded, or non-profit — any role that isn't actively draining and pays adequately
+- Company name, network, or sector puts the candidate in proximity to GTM/RevOps/Product roles within 12–18 months
 
-Scoring calibration — use this as your reference:
-- 1–4: Poor fit. Role requires deep specialization the candidate clearly lacks (e.g. technical engineering, finance/accounting, legal, clinical).
-- 5–6: Directionally relevant. The candidate's background maps to core parts of the role even if there are gaps. Worth a look — they could make a credible case.
-- 7–8: Solid match. Strong alignment on most dimensions. Resume and cover letter would be competitive.
-- 9–10: Exceptional fit. Near-perfect match; candidate would be a top-tier applicant.
+Fail the gate (return gate_passed: false) only if the role is primarily:
+- Financial audit, compliance audit, or regulatory audit
+- Accounting, bookkeeping, or financial analysis as the core function
+- Customer support or service delivery as the primary responsibility
+- Pure event coordination or community networking as a weekly core requirement
+- Heavy outbound sales or cold lead generation as the primary function
+- Deep technical engineering with no ops or strategic layer
 
-Do not score against an ideal candidate. Score against the realistic question: "Would a strong generalist ops/PM with this background have a real shot at this role?"
+If gate fails, return gate_passed: false with a one-line reason. Stop there.
 
-Hard gate: If the role is clearly outside the candidate's domain (deep technical, finance, legal, clinical, or requires a credential they don't have), return gate_passed: false with a brief reason. Otherwise pass the gate and score.
+SCORING — only for roles that pass the gate.
+Score 1–10 using this weighted composite:
+- Resume/JD fit (30%): Does the candidate's background map to core parts of this role? Directional alignment counts — innovation ecosystem, program ops, systems building, and community platform experience are transferable to a wide range of ops/enablement/BA roles. Score relative to a strong generalist ops background, not a keyword-perfect match.
+- Interview likelihood (30%): Given this candidate's profile and the typical hiring pool for this role and organization type, how likely are they to get a screening call? Government, non-profit, and innovation org roles should score higher here given the candidate's background in those environments.
+- Offer likelihood (40%): If they get the interview, how competitive is their full profile? For pivot roles at target-sector companies, weigh potential and trajectory alongside direct experience.
+
+Scoring calibration:
+- 1–4: Poor directional fit even accounting for transferability
+- 5–6: Directionally relevant, credible application, some gaps — worth a look
+- 7–8: Solid fit, competitive application, should apply
+- 9–10: Exceptional fit, top-tier applicant
+
+A role that passes the gate should floor at 4. A role where the candidate has genuine relevant experience in at least two dimensions should floor at 5.
+
+Do not penalize heavily for title mismatch. Penalize for credential gaps the candidate cannot credibly bridge in an interview.
 
 Return JSON only:
 {{
