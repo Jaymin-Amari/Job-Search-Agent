@@ -27,6 +27,10 @@ TARGET_ROLES = [
     "Program Manager",
     "Venture Architect",
     "Business Architect",
+    "Business Analyst",
+    "Business Systems Analyst",
+    "Business Process Analyst",
+    "Business Process Manager",
 ]
 
 EXCLUDED_TITLES = ["Director", "Chief of Staff"]

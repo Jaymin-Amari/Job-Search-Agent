@@ -30,13 +30,19 @@ You are evaluating a job posting for a candidate with the following background:
 {resume_text}
 
 Score this job posting on a scale of 1–10 using a weighted composite:
-- Resume/JD fit (30%): How well does the candidate's experience and language match the role requirements?
-- Interview likelihood (30%): Given the typical candidate pool for this role and company, how likely is this candidate to get a call?
+- Resume/JD fit (30%): How well does the candidate's experience and skills map to the role? Score relative to a strong generalist ops/PM background — directional alignment counts, not keyword-perfect matching.
+- Interview likelihood (30%): Given the candidate's profile, how likely are they to get a screening call? Consider that generalist ops/PM candidates get interviews at a wide range of companies, not just ones with exact title matches.
 - Offer likelihood (40%): If they get the interview, how competitive is their full profile for an offer?
 
-Be realistic and critical. A strong fit does not automatically mean a high score — interview and offer likelihood must reflect actual competitiveness, not just alignment.
+Scoring calibration — use this as your reference:
+- 1–4: Poor fit. Role requires deep specialization the candidate clearly lacks (e.g. technical engineering, finance/accounting, legal, clinical).
+- 5–6: Directionally relevant. The candidate's background maps to core parts of the role even if there are gaps. Worth a look — they could make a credible case.
+- 7–8: Solid match. Strong alignment on most dimensions. Resume and cover letter would be competitive.
+- 9–10: Exceptional fit. Near-perfect match; candidate would be a top-tier applicant.
 
-Hard gate: If resume/JD alignment is below 60%, return score of 0 and reason only. Do not complete full scoring.
+Do not score against an ideal candidate. Score against the realistic question: "Would a strong generalist ops/PM with this background have a real shot at this role?"
+
+Hard gate: If the role is clearly outside the candidate's domain (deep technical, finance, legal, clinical, or requires a credential they don't have), return gate_passed: false with a brief reason. Otherwise pass the gate and score.
 
 Return JSON only:
 {{
