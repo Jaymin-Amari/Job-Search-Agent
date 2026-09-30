@@ -36,7 +36,7 @@ Score this job posting on a scale of 1–10 using a weighted composite:
 
 Be realistic and critical. A strong fit does not automatically mean a high score — interview and offer likelihood must reflect actual competitiveness, not just alignment.
 
-Hard gate: If resume/JD alignment is below 75%, return score of 0 and reason only. Do not complete full scoring.
+Hard gate: If resume/JD alignment is below 60%, return score of 0 and reason only. Do not complete full scoring.
 
 Return JSON only:
 {{

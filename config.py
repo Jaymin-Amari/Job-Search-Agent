@@ -93,7 +93,7 @@ WATCHLIST_AUTO_FIND: list[str] = []
 # ── Scoring cap ───────────────────────────────────────────────────────────────
 # Process at most this many jobs per run (newest first). Prevents timeouts when
 # the feed is unusually large after a holiday or weekend gap.
-MAX_JOBS_PER_RUN = 50
+MAX_JOBS_PER_RUN = 200
 
 # ── Queer-role detection: flag for manual handling, skip auto-cover-letter ─────
 # Only checked against job title + company name — not description — to avoid
