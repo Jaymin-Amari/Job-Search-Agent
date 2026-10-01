@@ -93,6 +93,12 @@ def main() -> None:
         company = job.get("company", "Unknown Company")
         print(f"  Scoring: {title} — {company}")
 
+        # Title relevance check — skip API call if title has no TARGET_ROLES overlap
+        if not _is_title_relevant(title):
+            print(f"    Skipping — title mismatch")
+            skipped.append({**job, "_skip_reason": "title mismatch"})
+            continue
+
         # Fetch description if scraper deferred it
         description = job.get("description", "")
         if not description and job.get("url"):
@@ -418,6 +424,12 @@ def _is_queer_focused(title: str, company: str) -> bool:
     """Flag only when the title or company name itself contains a queer-org keyword."""
     haystack = (title + " " + company).lower()
     return any(kw in haystack for kw in config.QUEER_ROLE_KEYWORDS)
+
+
+def _is_title_relevant(title: str) -> bool:
+    """Return True if the title contains any TARGET_ROLES phrase (case-insensitive)."""
+    t = title.lower()
+    return any(role.lower() in t for role in config.TARGET_ROLES)
 
 
 def _date_sort_key(job: dict) -> str:

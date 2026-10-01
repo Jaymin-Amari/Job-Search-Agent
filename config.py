@@ -14,23 +14,23 @@ DAILY_BRIEFING_DOC_NAME = "Daily Briefing"
 SEARCH_LOCATIONS = ["Toronto", "GTA", "Remote"]
 
 TARGET_ROLES = [
-    "Product Manager",
-    "Product Owner",
-    "Product Owner Lead",
-    "Head of Operations",
-    "VP Operations",
-    "Business Operations",
-    "Strategic Enablement",
-    "Systems Operations",
-    "GTM Architect",
-    "RevOps",
-    "Program Manager",
-    "Venture Architect",
-    "Business Architect",
-    "Business Analyst",
+    "Product Operations",
     "Business Systems Analyst",
+    "Business Analyst",
     "Business Process Analyst",
-    "Business Process Manager",
+    "Operations Manager",
+    "Program Manager",
+    "Enablement Specialist",
+    "Enablement Manager",
+    "RevOps Analyst",
+    "GTM Operations",
+    "Community Operations",
+    "Learning Operations",
+    "Platform Operations",
+    "Innovation Program Manager",
+    "Ecosystem Program Manager",
+    "Implementation Manager",
+    "Strategy and Operations",
 ]
 
 EXCLUDED_TITLES = ["Director", "Chief of Staff"]
