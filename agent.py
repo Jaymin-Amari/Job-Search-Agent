@@ -87,6 +87,7 @@ def main() -> None:
     worth_a_look: list[dict] = []
     skipped: list[dict] = []
     gated_out: list[dict] = []
+    _scored_count = 0  # tracks first-10 raw score logging
 
     for job in jobs_to_score:
         title = job.get("title", "Unknown Role")
@@ -127,9 +128,24 @@ def main() -> None:
         score = score_result.get("score", 0)
         gate_passed = score_result.get("gate_passed", False)
 
+        _scored_count += 1
+        if _scored_count <= 10:
+            print(f"    [raw] score={score} gate_passed={gate_passed}")
+
         if not gate_passed:
             gated_out.append({**job, **score_result})
             continue
+
+        # ── Score floor enforcement (gate passed) ─────────────────────────────
+        raw_score = score
+        fit_reasons = score_result.get("fit_reasons") or []
+        if score < 4:
+            score = 4
+        if score < 5 and len(fit_reasons) >= 2:
+            score = 5
+        if score != raw_score:
+            print(f"    Score overridden from {raw_score} to {score} for {title} at {company}")
+            score_result = {**score_result, "score": score}
 
         network_flag = score_result.get("network_flag") or _check_network_flag(company)
 
