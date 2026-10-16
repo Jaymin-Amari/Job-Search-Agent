@@ -427,7 +427,10 @@ def _is_queer_focused(title: str, company: str) -> bool:
 
 
 def _is_title_relevant(title: str) -> bool:
-    """Return True if the title contains any TARGET_ROLES phrase (case-insensitive)."""
+    """Return True if the title contains any TARGET_ROLES phrase (case-insensitive).
+    Blank titles pass through so LinkedIn jobs with no title field reach scoring."""
+    if not title or not title.strip():
+        return True
     t = title.lower()
     return any(role.lower() in t for role in config.TARGET_ROLES)
 
