@@ -3,8 +3,6 @@ Searches Indeed using python-jobspy (no API key required).
 Searches each target role in Toronto for the last 24 hours.
 """
 
-import anthropic  # kept so agent.py import signature stays unchanged
-
 from config import TARGET_ROLES
 
 try:
@@ -14,7 +12,7 @@ except ImportError:
     _JOBSPY_AVAILABLE = False
 
 
-def search_indeed(client: anthropic.Anthropic) -> list[dict]:
+def search_indeed() -> list[dict]:
     """Search Indeed for all target roles. Returns deduplicated job list."""
     if not _JOBSPY_AVAILABLE:
         print("[indeed] python-jobspy not installed — skipping Indeed source.")

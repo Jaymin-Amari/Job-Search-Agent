@@ -1,40 +1,35 @@
 #!/usr/bin/env python3
 """
-Job Search Agent — main orchestration loop.
+Job Search Agent — discovery-only mode.
+
+Fetches jobs from Indeed, LinkedIn staging files, and watchlist career pages,
+deduplicates against seen_jobs, filters by title relevance, writes surviving
+jobs to a "Daily Feed" Google Doc, and updates seen_jobs.
 
 Run:
   python agent.py               # live run (reads/writes Drive)
-  DRY_RUN=true python agent.py  # prints briefing to stdout, no Drive writes
+  DRY_RUN=true python agent.py  # prints feed to stdout, no Drive writes
 """
 
-import json
 import os
 import re
-import sys
 import time
 from datetime import datetime, timezone
 
-import anthropic
-
 import config
 import drive_handler
-import prompts
 from sources import gmail_linkedin, indeed, scraper
 
 
 def main() -> None:
     dry_run = config.DRY_RUN
     if dry_run:
-        print("[DRY RUN] Drive writes disabled — briefing will print to stdout.")
+        print("[DRY RUN] Drive writes disabled — feed will print to stdout.")
 
-    client = anthropic.Anthropic()
     today = datetime.now(timezone.utc).strftime("%B %d, %Y").upper()
     date_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # ── 1. Load persistent state from Drive ───────────────────────────────────
-    print("Reading master resume from Drive...")
-    resume_text = drive_handler.download_docx_text(config.MASTER_RESUME_ID)
-
+    # ── 1. Load seen_jobs from Drive ───────────────────────────────────────────
     print("Reading seen_jobs doc from Drive...")
     seen_doc_id = drive_handler.get_or_create_briefing_doc(
         config.DRIVE_OUTPUT_FOLDER_ID, config.SEEN_JOBS_DOC_NAME
@@ -46,8 +41,8 @@ def main() -> None:
     print("Fetching LinkedIn jobs from Drive staging file...")
     linkedin_jobs = gmail_linkedin.get_linkedin_jobs(dry_run=dry_run)
 
-    print("Searching Indeed via MCP...")
-    indeed_jobs = indeed.search_indeed(client)
+    print("Searching Indeed...")
+    indeed_jobs = indeed.search_indeed()
 
     print("Scraping watchlist career pages...")
     watchlist_jobs, scraper_notes = scraper.get_watchlist_jobs()
@@ -55,439 +50,113 @@ def main() -> None:
     all_jobs = linkedin_jobs + indeed_jobs + watchlist_jobs
     print(f"Total jobs fetched: {len(all_jobs)}")
 
-    # ── 3. Deduplicate against seen_jobs.log ──────────────────────────────────
+    # ── 3. Deduplicate against seen_jobs ──────────────────────────────────────
     new_jobs: list[dict] = []
     for job in all_jobs:
         url = job.get("url", "").strip()
         if url and url not in seen_urls:
             new_jobs.append(job)
-            seen_urls.add(url)  # prevent dupes within this run too
+            seen_urls.add(url)
 
     print(f"New (unseen): {len(new_jobs)}")
 
-    # ── 4. Pre-filter: excluded titles ────────────────────────────────────────
+    # ── 4. Filter: excluded titles ─────────────────────────────────────────────
     def _is_excluded(title: str) -> bool:
         t = title.lower()
         return any(ex.lower() in t for ex in config.EXCLUDED_TITLES)
 
-    jobs_to_score = [j for j in new_jobs if not _is_excluded(j.get("title", ""))]
-    pre_filtered = len(new_jobs) - len(jobs_to_score)
-    if pre_filtered:
-        print(f"Pre-filtered (excluded titles): {pre_filtered}")
+    jobs_after_exclude = [j for j in new_jobs if not _is_excluded(j.get("title", ""))]
+    excluded_count = len(new_jobs) - len(jobs_after_exclude)
+    if excluded_count:
+        print(f"Excluded (title filter): {excluded_count}")
 
-    # ── 4b. Cap at MAX_JOBS_PER_RUN (newest first) ────────────────────────────
-    jobs_to_score.sort(key=_date_sort_key, reverse=True)
-    cap_skipped = max(0, len(jobs_to_score) - config.MAX_JOBS_PER_RUN)
-    if cap_skipped:
-        print(f"Capping at {config.MAX_JOBS_PER_RUN} jobs ({cap_skipped} older postings skipped)")
-        jobs_to_score = jobs_to_score[: config.MAX_JOBS_PER_RUN]
+    # ── 5. Filter: title relevance ────────────────────────────────────────────
+    relevant_jobs = [j for j in jobs_after_exclude if _is_title_relevant(j.get("title", ""))]
+    irrelevant_count = len(jobs_after_exclude) - len(relevant_jobs)
+    if irrelevant_count:
+        print(f"Skipped (title mismatch): {irrelevant_count}")
 
-    # ── 5. Score and process each job ─────────────────────────────────────────
-    strong_fits: list[dict] = []
-    worth_a_look: list[dict] = []
-    skipped: list[dict] = []
-    gated_out: list[dict] = []
-    _scored_count = 0  # tracks first-10 raw score logging
+    print(f"Jobs in feed: {len(relevant_jobs)}")
 
-    for job in jobs_to_score:
-        title = job.get("title", "Unknown Role")
-        company = job.get("company", "Unknown Company")
-        print(f"  Scoring: {title} — {company}")
-
-        # Title relevance check — skip API call if title has no TARGET_ROLES overlap
-        if not _is_title_relevant(title):
-            print(f"    Skipping — title mismatch")
-            skipped.append({**job, "_skip_reason": "title mismatch"})
-            continue
-
-        # Fetch description if scraper deferred it
-        description = job.get("description", "")
-        if not description and job.get("url"):
-            description = _fetch_description(job["url"])
-            job["description"] = description
-
-        job_text = (
-            f"Title: {title}\n"
-            f"Company: {company}\n"
-            f"Location: {job.get('location', '')}\n\n"
-            f"{description}"
-        )
-
-        # Flag queer-focused roles for manual handling (title + company only)
-        if _is_queer_focused(title, company):
-            print(f"    ⚑ Queer-focused role — flagged for manual handling, no auto-apply")
-            strong_fits.append({**job, "_queer_flag": True})
-            continue
-
-        # Score via Claude API
-        score_result = _score_job(client, resume_text, job_text, job.get("url", ""))
-        if score_result is None:
-            skipped.append(job)
-            continue
-
-        score = score_result.get("score", 0)
-        gate_passed = score_result.get("gate_passed", False)
-
-        _scored_count += 1
-        if _scored_count <= 10:
-            print(f"    [raw] score={score} gate_passed={gate_passed}")
-
-        if not gate_passed:
-            gated_out.append({**job, **score_result})
-            continue
-
-        # ── Score floor enforcement (gate passed) ─────────────────────────────
-        raw_score = score
-        fit_reasons = score_result.get("fit_reasons") or []
-        if score < 4:
-            score = 4
-        if score < 5 and len(fit_reasons) >= 2:
-            score = 5
-        if score != raw_score:
-            print(f"    Score overridden from {raw_score} to {score} for {title} at {company}")
-            score_result = {**score_result, "score": score}
-
-        network_flag = score_result.get("network_flag") or _check_network_flag(company)
-
-        if score >= 7:
-            print(f"    Score {score} — gap analysis + writing...")
-            gap = _run_gap_analysis(client, resume_text, job_text)
-            resume_doc = _tailor_resume(client, resume_text, job_text, gap)
-            cover_doc = _write_cover_letter(client, resume_text, job_text, gap)
-
-            safe_co = _safe_name(company)
-            safe_title = _safe_name(title)
-            resume_name = f"{date_prefix} — {safe_co} — {safe_title} — Resume"
-            cover_name = f"{date_prefix} — {safe_co} — {safe_title} — Cover Letter"
-
-            if not dry_run:
-                drive_handler.create_google_doc(config.DRIVE_OUTPUT_FOLDER_ID, resume_name, resume_doc)
-                drive_handler.create_google_doc(config.DRIVE_OUTPUT_FOLDER_ID, cover_name, cover_doc)
-                print(f"    Created: {resume_name}")
-                print(f"    Created: {cover_name}")
-            else:
-                print(f"    [DRY RUN] Would create: {resume_name}")
-                print(f"    [DRY RUN] Would create: {cover_name}")
-
-            strong_fits.append({**job, **score_result, "network_flag": network_flag})
-
-        elif score >= 5:
-            worth_a_look.append({**job, **score_result, "network_flag": network_flag})
-        else:
-            skipped.append({**job, **score_result})
-
-    # ── 6. Build briefing ──────────────────────────────────────────────────────
-    scored_count = len(jobs_to_score) - len(gated_out)
-    strong_real = [j for j in strong_fits if not j.get("_queer_flag")]
-
-    stats = {
-        "sources_scanned": (
-            f"{len(config.TARGET_ROLES)} board searches + "
-            f"{len(config.WATCHLIST_CONFIRMED) + len(config.WATCHLIST_AUTO_FIND)} watchlist pages"
-        ),
-        "total_reviewed": len(jobs_to_score),
-        "cap_skipped": cap_skipped,
-        "gated_out": len(gated_out),
-        "scored": scored_count,
-        "strong_fits": len(strong_real),
-        "worth_a_look": len(worth_a_look),
-        "skipped": len(skipped),
-    }
-
-    briefing = _format_briefing(today, stats, strong_fits, worth_a_look, skipped, scraper_notes)
+    # ── 6. Build feed document ────────────────────────────────────────────────
+    feed = _format_feed(today, relevant_jobs, scraper_notes)
 
     # ── 7. Write outputs ───────────────────────────────────────────────────────
     if dry_run:
         print("\n" + "=" * 60)
-        print(briefing)
+        print(feed)
         print("=" * 60)
     else:
-        _drive_write_with_retry(briefing, seen_urls, seen_doc_id)
+        _drive_write_with_retry(feed, seen_urls, seen_doc_id)
 
     print(
-        f"\nDone. {len(strong_real)} strong fit(s), "
-        f"{len(worth_a_look)} worth a look, "
-        f"{len(gated_out)} gated out."
+        f"\nDone. {len(relevant_jobs)} job(s) written to Daily Feed. "
+        f"{excluded_count + irrelevant_count} filtered out."
     )
 
 
-# ── Claude API calls ───────────────────────────────────────────────────────────
+# ── Feed formatter ─────────────────────────────────────────────────────────────
 
-def _score_job(
-    client: anthropic.Anthropic,
-    resume_text: str,
-    job_text: str,
-    job_url: str,
-) -> dict | None:
-    full_prompt = prompts.SCORING_PROMPT.format(resume_text=resume_text, job_text=job_text)
-
-    # Split at "Job posting:" to cache the resume + instructions portion across calls
-    split_at = "Job posting:"
-    if split_at in full_prompt:
-        idx = full_prompt.index(split_at)
-        cacheable_part = full_prompt[:idx]
-        variable_part = full_prompt[idx:]
-        content: list | str = [
-            {
-                "type": "text",
-                "text": cacheable_part,
-                "cache_control": {"type": "ephemeral"},
-            },
-            {"type": "text", "text": variable_part},
-        ]
-    else:
-        content = full_prompt
-
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": content}],
-            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
-        )
-        text = response.content[0].text.strip()
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start >= 0 and end > start:
-            result = json.loads(text[start:end])
-            teal = result.get("teal_entry")
-            if isinstance(teal, dict) and not teal.get("url"):
-                result["teal_entry"]["url"] = job_url
-            return result
-    except Exception as e:
-        print(f"    Scoring error: {e}")
-    return None
-
-
-def _run_gap_analysis(
-    client: anthropic.Anthropic, resume_text: str, job_text: str
-) -> str:
-    prompt = prompts.GAP_ANALYSIS_PROMPT.format(resume_text=resume_text, job_text=job_text)
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text
-
-
-def _tailor_resume(
-    client: anthropic.Anthropic,
-    resume_text: str,
-    job_text: str,
-    gap: str,
-) -> str:
-    prompt = prompts.RESUME_TAILORING_PROMPT.format(
-        resume_text=resume_text,
-        job_text=job_text,
-        gap_analysis_output=gap,
-    )
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text
-
-
-def _write_cover_letter(
-    client: anthropic.Anthropic,
-    resume_text: str,
-    job_text: str,
-    gap: str,
-) -> str:
-    prompt = prompts.COVER_LETTER_PROMPT.format(
-        resume_text=resume_text,
-        job_text=job_text,
-        gap_analysis_output=gap,
-    )
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text
-
-
-# ── Briefing formatter ─────────────────────────────────────────────────────────
-
-def _format_briefing(
-    today: str,
-    stats: dict,
-    strong_fits: list[dict],
-    worth_a_look: list[dict],
-    skipped: list[dict],
-    scraper_notes: list[str],
-) -> str:
+def _format_feed(today: str, jobs: list[dict], scraper_notes: list[str]) -> str:
     lines = [
         "═══════════════════════════════════════",
-        f"📅 {today} — DAILY JOB BRIEFING",
-        f"Scanned: {stats['sources_scanned']}",
-        (
-            f"New postings reviewed: {stats['total_reviewed']}"
-            + (f" (+{stats['cap_skipped']} cap-skipped)" if stats.get("cap_skipped") else "")
-            + f" | Gated out: {stats['gated_out']} | Scored: {stats['scored']}"
-        ),
-        (
-            f"Briefing includes: {stats['strong_fits']} strong fits | "
-            f"{stats['worth_a_look']} worth a look | "
-            f"{stats['skipped']} skipped"
-        ),
+        f"📅 {today} — DAILY JOB FEED",
+        f"New postings: {len(jobs)}",
         "═══════════════════════════════════════",
         "",
-        "── 🟢 STRONG FITS (7+) ──────────────────",
-        "",
     ]
 
-    for job in strong_fits:
-        title = job.get("title", "Unknown Role")
-        company = job.get("company", "Unknown Company")
-        url = job.get("url", "")
-        teal = job.get("teal_entry") or {}
+    if not jobs:
+        lines.append("No new relevant jobs found today.")
+    else:
+        for job in jobs:
+            title = job.get("title") or "Unknown Role"
+            company = job.get("company") or "Unknown Company"
+            url = job.get("url") or ""
+            source = job.get("source") or "unknown"
+            date_posted = job.get("date_posted")
+            date_str = f"  Posted: {str(date_posted)[:10]}" if date_posted else ""
 
-        if job.get("_queer_flag"):
             lines += [
-                f"### {title} — {company}  ⚑ QUEER-FOCUSED ROLE",
-                "Manual handling required — queer context may apply. Do not auto-apply.",
-                f"🔗 {url}",
-                f"📌 {title} — {company}",
-                "",
-                "---",
+                f"### {title} — {company}",
+                f"Source: {source}{date_str}",
+                f"URL: {url}",
                 "",
             ]
-            continue
-
-        score = job.get("score", "N/A")
-        fit_reasons = job.get("fit_reasons", [])
-        concerns = job.get("concerns", [])
-
-        lines += [
-            f"### {title} — {company} (Score: {score}/10)",
-            f"Summary: {job.get('fit_summary', '')}",
-            f"Fit: {'; '.join(fit_reasons)}",
-            f"Watch: {'; '.join(concerns)}",
-            f"Interview likelihood: {job.get('interview_likelihood', '')}",
-            f"Offer likelihood: {job.get('offer_likelihood', '')}",
-        ]
-
-        if job.get("network_flag"):
-            lines.append(f"⚑ Network: {job['network_flag']}")
-
-        display_title = teal.get("title") or title
-        display_company = teal.get("company") or company
-        lines += [
-            f"🔗 {url}",
-            f"📌 {display_title} — {display_company}",
-            "📁 Resume + Cover Letter: saved to Drive output folder",
-            "",
-            "---",
-            "",
-        ]
-
-    lines += [
-        "── 🟡 WORTH A LOOK (5–6) — No draft generated ──",
-        "",
-    ]
-
-    for job in worth_a_look:
-        score = job.get("score", "N/A")
-        title = job.get("title", "Unknown Role")
-        company = job.get("company", "Unknown Company")
-        concerns = job.get("concerns", [])
-        note = concerns[0] if concerns else ""
-        salary_flag = " (salary unconfirmed)" if any(
-            w in note.lower() for w in ["salary", "compensation", "pay"]
-        ) else ""
-        network = f" | ⚑ {job['network_flag']}" if job.get("network_flag") else ""
-        lines.append(f"- {title}, {company} ({score}) — {note}{salary_flag}{network}")
-
-    lines += [
-        "",
-        f"── ⚫ SKIPPED (<5): {len(skipped)} postings ─────────────",
-    ]
 
     if scraper_notes:
         lines += [
-            "",
             "── ⚠ SCRAPER NOTES ──────────────────────",
         ]
         for note in scraper_notes:
             lines.append(f"  • {note}")
+        lines.append("")
 
-    lines.append("")
     return "\n".join(lines)
 
 
 # ── Utility helpers ────────────────────────────────────────────────────────────
 
-def _fetch_description(url: str) -> str:
-    try:
-        import requests
-        from bs4 import BeautifulSoup
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; JobAgent/1.0)"}
-        resp = requests.get(url, headers=headers, timeout=15)
-        if resp.status_code != 200:
-            return ""
-        soup = BeautifulSoup(resp.text, "lxml")
-        for tag in soup(["script", "style", "nav", "header", "footer"]):
-            tag.decompose()
-        return soup.get_text(separator="\n", strip=True)[:5000]
-    except Exception:
-        return ""
-
-
-def _is_queer_focused(title: str, company: str) -> bool:
-    """Flag only when the title or company name itself contains a queer-org keyword."""
-    haystack = (title + " " + company).lower()
-    return any(kw in haystack for kw in config.QUEER_ROLE_KEYWORDS)
-
-
 def _is_title_relevant(title: str) -> bool:
     """Return True if the title contains any TARGET_ROLES phrase (case-insensitive).
-    Blank titles pass through so LinkedIn jobs with no title field reach scoring."""
+    Blank titles pass through so LinkedIn jobs with no title field reach the feed."""
     if not title or not title.strip():
         return True
     t = title.lower()
     return any(role.lower() in t for role in config.TARGET_ROLES)
 
 
-def _date_sort_key(job: dict) -> str:
-    """Return an ISO date string for sorting newest-first; '' sorts last."""
-    d = job.get("date_posted")
-    if not d:
-        return ""
-    return str(d)[:10]  # handles date objects and 'YYYY-MM-DD' strings
-
-
-def _check_network_flag(company: str) -> str | None:
-    company_lower = company.lower()
-    for key, note in config.NETWORK_FLAGS.items():
-        if key in company_lower:
-            return note
-    return None
-
-
-def _safe_name(s: str) -> str:
-    """Strip characters illegal in filenames and truncate."""
-    return re.sub(r'[\\/*?:"<>|]', "", s).strip()[:40]
-
-
-def _drive_write_with_retry(briefing: str, seen_urls: set[str], seen_doc_id: str) -> None:
-    """Write briefing doc and seen_jobs doc to Drive.
-
-    Rebuilds service clients before each attempt to avoid stale connections
-    after a long scoring run (~9+ minutes of API calls drops the underlying
-    httplib2 socket). Retries up to 3 times with a 5-second pause.
-    """
+def _drive_write_with_retry(feed: str, seen_urls: set[str], seen_doc_id: str) -> None:
+    """Write Daily Feed doc and seen_jobs doc to Drive, retrying up to 3 times."""
     for attempt in range(1, 4):
         try:
             drive_handler.reset_services()
 
-            print("Updating Daily Briefing Google Doc...")
-            briefing_doc_id = drive_handler.get_or_create_briefing_doc(
-                config.DRIVE_OUTPUT_FOLDER_ID, config.DAILY_BRIEFING_DOC_NAME
+            print("Updating Daily Feed Google Doc...")
+            feed_doc_id = drive_handler.get_or_create_briefing_doc(
+                config.DRIVE_OUTPUT_FOLDER_ID, "Daily Feed"
             )
-            drive_handler.prepend_to_doc(briefing_doc_id, briefing)
+            drive_handler.prepend_to_doc(feed_doc_id, feed)
 
             print("Writing seen_jobs Google Doc...")
             drive_handler.overwrite_google_doc(seen_doc_id, "\n".join(sorted(seen_urls)))
